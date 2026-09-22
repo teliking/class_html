@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>X25519：从数学推导到可运行实现</title>
+<style>
+  :root{
+    --bg:#07111f; --panel:#0e1a2b; --panel2:#122239; --text:#eef6ff; --muted:#9fb2c8;
+    --line:#29425f; --blue:#55a7ff; --cyan:#55e2e2; --green:#55d89d; --purple:#ad8cff; --red:#ff7b86; --amber:#ffc766;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:linear-gradient(180deg,#06101d,#091421 35%,#07111f);color:var(--text);line-height:1.65}
+  a{color:#88c5ff}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 70px}
+  .hero{padding:34px 0 18px}
+  .eyebrow{color:var(--cyan);font-weight:700;letter-spacing:.08em;font-size:13px;text-transform:uppercase}
+  h1{font-size:clamp(34px,5vw,62px);line-height:1.05;margin:10px 0 14px;letter-spacing:-.03em}
+  .lead{max-width:860px;color:var(--muted);font-size:18px;margin:0}
+  .nav{display:flex;gap:10px;flex-wrap:wrap;margin:24px 0 8px;position:sticky;top:8px;z-index:10;padding:10px 0;background:linear-gradient(180deg,rgba(7,17,31,.96),rgba(7,17,31,.76),transparent)}
+  .nav a{text-decoration:none;padding:8px 12px;border:1px solid var(--line);border-radius:999px;background:#0d1a2b;color:#d8e8fa;font-size:14px}
+  section{margin-top:34px;padding-top:4px}
+  h2{font-size:28px;margin:0 0 14px}
+  h3{font-size:19px;margin:0 0 10px}
+  p{margin:8px 0}
+  .grid{display:grid;gap:14px}
+  .g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .card{background:linear-gradient(180deg,rgba(18,34,57,.92),rgba(12,26,43,.92));border:1px solid var(--line);border-radius:18px;padding:18px;min-width:0}
+  .card strong{color:#fff}
+  .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+  .v{font-size:20px;font-weight:800;margin-top:6px;word-break:break-word}
+  .small{font-size:13px;color:var(--muted)}
+  .formula{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;background:#07101c;border:1px solid #24405e;border-radius:14px;padding:14px 16px;overflow:auto;white-space:nowrap;color:#dff6ff}
+  .formula.big{font-size:clamp(18px,2.6vw,28px);text-align:center;padding:22px}
+  .accent{color:var(--cyan)} .blue{color:var(--blue)} .green{color:var(--green)} .purple{color:var(--purple)} .red{color:var(--red)} .amber{color:var(--amber)}
+  .flow{display:grid;grid-template-columns:1fr 92px 1fr;gap:10px;align-items:center}
+  .actor{background:#0b1828;border:1px solid var(--line);border-radius:18px;padding:18px;text-align:center}
+  .actor .icon{font-size:42px}.actor h3{margin:8px 0 2px}
+  .arrow{display:flex;align-items:center;justify-content:center;color:var(--blue);font-size:36px;font-weight:900}
+  .steps{display:grid;gap:10px;margin-top:16px}
+  .step{display:grid;grid-template-columns:38px 1fr;gap:12px;align-items:start;background:#0b1828;border:1px solid var(--line);border-radius:14px;padding:14px}
+  .num{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#15375f;color:#bfe0ff;font-weight:800}
+  button{appearance:none;border:none;border-radius:12px;padding:10px 14px;background:#1f6fbd;color:#fff;font-weight:700;cursor:pointer}
+  button.secondary{background:#20334a;color:#deebf8;border:1px solid #3a526d}
+  button.good{background:#167a56}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+  input[type="range"]{width:100%}
+  .mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
+  .hex{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;font-size:12px;word-break:break-all;background:#07101c;border:1px solid #213a57;border-radius:12px;padding:11px;color:#cfe8ff;min-height:46px}
+  .ok{color:var(--green);font-weight:800}.bad{color:var(--red);font-weight:800}
+  .ladder{display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:start}
+  .bitbox{background:#07101c;border:1px solid #29415e;border-radius:16px;padding:16px;text-align:center;position:sticky;top:72px}
+  .bitnum{font-size:42px;font-weight:900;color:var(--amber)}
+  .state{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .state .card{padding:14px}
+  .label{font-size:12px;color:var(--muted);margin-bottom:5px}
+  .truncate{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar{height:9px;background:#0a1524;border-radius:999px;overflow:hidden;border:1px solid #1e334d}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--cyan));width:0%}
+  .timeline{display:flex;gap:4px;flex-wrap:wrap;margin-top:10px}
+  .bit{width:20px;height:20px;border-radius:5px;display:grid;place-items:center;background:#17283d;color:#8fa7c0;font-size:11px;border:1px solid #29425f}
+  .bit.active{background:#6e4bd2;color:#fff;border-color:#a98cff}
+  .mitm{display:grid;grid-template-columns:1fr 110px 1fr;gap:10px;align-items:center}
+  .mitm .attacker{background:#27161d;border-color:#5b2d3a}
+  .callout{border-left:4px solid var(--cyan);background:#0b1928;border-radius:10px;padding:12px 14px;color:#d9ebfb}
+  .warning{border-left-color:var(--amber)}
+  .danger{border-left-color:var(--red)}
+  details{background:#0b1828;border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+  summary{cursor:pointer;font-weight:800}
+  pre{white-space:pre-wrap;word-break:break-word;background:#06101a;border:1px solid #203b58;border-radius:14px;padding:14px;overflow:auto;color:#d7efff;font-size:12px}
+  .footer{margin-top:40px;color:var(--muted);font-size:13px}
+  @media (max-width:860px){.g4,.g3,.g2{grid-template-columns:1fr}.flow,.mitm{grid-template-columns:1fr}.arrow{transform:rotate(90deg)}.ladder{grid-template-columns:1fr}.bitbox{position:static}.state{grid-template-columns:1fr}.nav{position:static}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="eyebrow">Interactive cryptography explainer</div>
+    <h1>X25519：从数学推导到可运行实现</h1>
+    <p class="lead">把“随机私钥 → 公钥 → 交换 → 同一共享秘密”拆成可视化步骤，并在浏览器里直接运行 RFC 7748 的 X25519 实现与测试向量。</p>
+  </header>
+
+  <nav class="nav">
+    <a href="#overview">1. 参数</a><a href="#derive">2. 推导</a><a href="#ladder">3. Montgomery Ladder</a><a href="#demo">4. 真正运行</a><a href="#tls">5. TLS 1.3</a><a href="#mitm">6. MITM</a><a href="#code">7. 完整代码</a>
+  </nav>
+
+  <section id="overview">
+    <h2>1｜X25519 到底在算什么</h2>
+    <div class="grid g4">
+      <div class="card"><div class="k">有限域</div><div class="v">p = 2²⁵⁵ − 19</div><div class="small">所有坐标运算都在 GF(p) 中完成。</div></div>
+      <div class="card"><div class="k">Montgomery 曲线</div><div class="v">v² = u³ + 486662u² + u</div><div class="small">X25519 只公开/处理 u 坐标。</div></div>
+      <div class="card"><div class="k">基点 u 坐标</div><div class="v">u = 9</div><div class="small">生成公钥时的固定输入。</div></div>
+      <div class="card"><div class="k">目标</div><div class="v">ECDH Shared Secret</div><div class="small">双方得到同一个 32 字节结果。</div></div>
+    </div>
+    <div class="callout" style="margin-top:14px"><strong>注意：</strong>X25519 不是“把私钥加密成公钥”。它执行的是椭圆曲线上的标量乘法函数：<span class="mono">X25519(k, u)</span>。</div>
+  </section>
+
+  <section id="derive">
+    <h2>2｜核心推导：为什么双方最后会一样</h2>
+    <div class="flow">
+      <div class="actor"><div class="icon">💻</div><h3>客户端 Alice</h3><div class="small">随机 32 字节 → clamp → 私钥标量 a</div><div class="formula">A = X25519(a, 9)</div></div>
+      <div class="arrow">⇄</div>
+      <div class="actor"><div class="icon">🗄️</div><h3>服务器 Bob</h3><div class="small">随机 32 字节 → clamp → 私钥标量 b</div><div class="formula">B = X25519(b, 9)</div></div>
+    </div>
+    <div class="steps">
+      <div class="step"><div class="num">1</div><div><strong>各自在本地生成私钥。</strong><br><span class="small">私钥永远不发送。</span></div></div>
+      <div class="step"><div class="num">2</div><div><strong>用固定基点 u=9 算公钥。</strong><br><span class="mono">A = aG，B = bG</span></div></div>
+      <div class="step"><div class="num">3</div><div><strong>只交换公钥。</strong><br><span class="small">Alice 收到 B；Bob 收到 A。</span></div></div>
+      <div class="step"><div class="num">4</div><div><strong>分别再做一次标量乘法。</strong><br><span class="mono">Alice: aB　　Bob: bA</span></div></div>
+    </div>
+    <div class="formula big" style="margin-top:14px">aB = a(bG) = <span class="accent">abG</span> = b(aG) = bA</div>
+    <p class="small">X25519 实际只输出 Montgomery 曲线上的 u 坐标，但 Diffie–Hellman 的交换律直觉仍然可以用上面的标量乘法等式理解。</p>
+  </section>
+
+  <section>
+    <h2>3｜私钥为什么要 clamp</h2>
+    <div class="grid g3">
+      <div class="card"><h3>原始随机数</h3><div class="hex" id="rawClamp">点击“生成示例”</div></div>
+      <div class="card"><h3>位处理</h3><div class="formula">k[0]  &= 248<br>k[31] &= 127<br>k[31] |= 64</div></div>
+      <div class="card"><h3>处理后标量</h3><div class="hex" id="doneClamp">—</div></div>
+    </div>
+    <div class="controls"><button id="clampBtn">生成示例</button></div>
+    <div class="callout warning">这不是“为了加密随机数”，而是 RFC 7748 对 X25519 标量解码的固定规则，使标量具有指定的位结构。</div>
+  </section>
+
+  <section id="ladder">
+    <h2>4｜Montgomery Ladder：真正的标量乘法</h2>
+    <p class="small">下面用真实的 X25519 域参数运行 ladder。为了便于看懂，每一步只显示大整数的前后若干位。</p>
+    <div class="ladder">
+      <div class="bitbox">
+        <div class="k">当前处理 bit</div><div class="bitnum" id="bitValue">—</div>
+        <div class="small">位置 <span id="bitPos">—</span> / 254</div>
+        <div class="controls" style="justify-content:center"><button id="prevStep" class="secondary">上一步</button><button id="nextStep">下一步</button></div>
+        <button id="resetLadder" class="secondary" style="width:100%">重新生成私钥</button>
+      </div>
+      <div>
+        <div class="card">
+          <div class="label">算法骨架</div>
+          <pre>swap ^= bit
+conditionalSwap(x2,x3, swap)
+conditionalSwap(z2,z3, swap)
+swap = bit
+
+A  = x2 + z2      AA = A²
+B  = x2 - z2      BB = B²
+E  = AA - BB
+C  = x3 + z3      D  = x3 - z3
+DA = D·A          CB = C·B
+x3 = (DA + CB)²
+z3 = x1·(DA - CB)²
+x2 = AA·BB
+z2 = E·(AA + 121665·E)</pre>
+        </div>
+        <div class="state" style="margin-top:10px">
+          <div class="card"><div class="label">x₂</div><div class="mono truncate" id="x2v">—</div></div>
+          <div class="card"><div class="label">z₂</div><div class="mono truncate" id="z2v">—</div></div>
+          <div class="card"><div class="label">x₃</div><div class="mono truncate" id="x3v">—</div></div>
+          <div class="card"><div class="label">z₃</div><div class="mono truncate" id="z3v">—</div></div>
+        </div>
+        <div style="margin-top:12px"><div class="bar"><i id="progressBar"></i></div><div class="small" id="progressText" style="margin-top:6px">尚未开始</div></div>
+        <div class="timeline" id="bitTimeline"></div>
+      </div>
+    </div>
+    <details style="margin-top:12px"><summary>为什么最后还要除一次 z？</summary><p>Montgomery Ladder 内部用射影坐标表示 u = X/Z，避免每一步都做昂贵的模逆。循环结束后才计算 <span class="mono">u = x₂ · z₂^(p−2) mod p</span>；因为 p 是素数，可以用费马小定理求模逆。</p></details>
+  </section>
+
+  <section id="demo">
+    <h2>5｜浏览器内真实运行一次 X25519</h2>
+    <div class="controls"><button id="runDemo" class="good">生成 Alice / Bob 并计算</button><button id="testVector" class="secondary">运行 RFC 7748 测试向量</button></div>
+    <div id="demoStatus" class="callout">点击按钮开始。所有随机数只在当前页面本地生成。</div>
+    <div class="grid g2" style="margin-top:12px">
+      <div class="card">
+        <h3>Alice</h3>
+        <div class="label">原始 32B 私钥随机数</div><div id="aPriv" class="hex">—</div>
+        <div class="label" style="margin-top:10px">公钥 A = X25519(a, 9)</div><div id="aPub" class="hex">—</div>
+        <div class="label" style="margin-top:10px">Sₐ = X25519(a, B)</div><div id="aShared" class="hex">—</div>
+      </div>
+      <div class="card">
+        <h3>Bob</h3>
+        <div class="label">原始 32B 私钥随机数</div><div id="bPriv" class="hex">—</div>
+        <div class="label" style="margin-top:10px">公钥 B = X25519(b, 9)</div><div id="bPub" class="hex">—</div>
+        <div class="label" style="margin-top:10px">Sᵦ = X25519(b, A)</div><div id="bShared" class="hex">—</div>
+      </div>
+    </div>
+    <div class="formula big" id="sharedEq" style="margin-top:12px">Sₐ ?= Sᵦ</div>
+  </section>
+
+  <section id="tls">
+    <h2>6｜放进 TLS 1.3 后，它处在什么位置</h2>
+    <div class="grid g3">
+      <div class="card"><div class="k">① Key Share</div><div class="v">X25519 公钥</div><div class="small">ClientHello / ServerHello 交换 key_share。</div></div>
+      <div class="card"><div class="k">② ECDHE</div><div class="v">共享秘密</div><div class="small">X25519 产生 ECDHE shared secret。</div></div>
+      <div class="card"><div class="k">③ Key Schedule</div><div class="v">HKDF</div><div class="small">TLS 1.3 再把共享秘密和握手 transcript 派生为 traffic secrets、key、IV。</div></div>
+    </div>
+    <div class="formula big" style="margin-top:14px">X25519 → ECDHE Shared Secret → HKDF → Traffic Secret → AES-GCM / ChaCha20-Poly1305</div>
+    <div class="callout warning">X25519 的输出<strong>不会直接当作 AES 密钥</strong>。TLS 1.3 使用 HKDF key schedule 派生真正的握手与应用流量密钥。</div>
+  </section>
+
+  <section id="mitm">
+    <h2>7｜为什么还需要证书：X25519 自己挡不住 MITM</h2>
+    <div class="mitm">
+      <div class="actor"><div class="icon">💻</div><h3>客户端</h3><div class="small">以为对面是服务器</div></div>
+      <div class="actor attacker"><div class="icon">🦘</div><h3>MITM</h3><div class="small">替换双方公钥</div></div>
+      <div class="actor"><div class="icon">🗄️</div><h3>服务器</h3><div class="small">以为对面是客户端</div></div>
+    </div>
+    <div class="grid g2" style="margin-top:12px">
+      <div class="card"><div class="k">链路 1</div><div class="v red">客户端 ⇄ MITM</div><div class="small">形成共享秘密 K₁</div></div>
+      <div class="card"><div class="k">链路 2</div><div class="v red">MITM ⇄ 服务器</div><div class="small">形成共享秘密 K₂</div></div>
+    </div>
+    <div class="callout danger" style="margin-top:12px">所以 TLS 还要用<strong>证书 + CertificateVerify 数字签名</strong>把服务器身份与当前握手绑定起来。密钥交换解决“秘密怎么协商”，证书体系解决“对方到底是谁”。</div>
+  </section>
+
+  <section id="code">
+    <h2>8｜完整 X25519 JavaScript 实现</h2>
+    <p class="small">下面就是本页实际调用的实现：BigInt + Montgomery Ladder + RFC 7748 编解码。</p>
+    <pre id="codeDump"></pre>
+  </section>
+
+  <footer class="footer">
+    参考标准：RFC 7748《Elliptic Curves for Security》；RFC 8446《TLS 1.3》。本页用于教学演示；生产系统应优先使用经过审计的系统/密码库，而不是手写密码学实现。<br>
+    <a href="https://www.rfc-editor.org/rfc/rfc7748.html" target="_blank" rel="noreferrer">RFC 7748</a> · <a href="https://www.rfc-editor.org/rfc/rfc8446.html" target="_blank" rel="noreferrer">RFC 8446</a>
+  </footer>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const P = (1n << 255n) - 19n;
+  const A24 = 121665n;
+  const BASE_U = 9n;
+
+  const mod = x => { const r = x % P; return r >= 0n ? r : r + P; };
+  function powMod(base, exp) {
+    base = mod(base); let out = 1n;
+    while (exp > 0n) { if (exp & 1n) out = mod(out * base); base = mod(base * base); exp >>= 1n; }
+    return out;
+  }
+  const inv = x => powMod(x, P - 2n);
+
+  function bytesToBigLE(bytes) {
+    let n = 0n;
+    for (let i = bytes.length - 1; i >= 0; i--) n = (n << 8n) | BigInt(bytes[i]);
+    return n;
+  }
+  function bigToBytesLE(n, len = 32) {
+    n = mod(n); const out = new Uint8Array(len);
+    for (let i = 0; i < len; i++) { out[i] = Number(n & 255n); n >>= 8n; }
+    return out;
+  }
+  function hexToBytes(hex) {
+    if (hex.length % 2) throw new Error('hex 长度必须为偶数');
+    const out = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i*2, i*2+2), 16);
+    return out;
+  }
+  const bytesToHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2,'0')).join('');
+
+  function clampScalarBytes(input) {
+    const k = new Uint8Array(input);
+    if (k.length !== 32) throw new Error('X25519 scalar 必须是 32 字节');
+    k[0] &= 248;
+    k[31] &= 127;
+    k[31] |= 64;
+    return k;
+  }
+  function decodeU(input) {
+    const u = new Uint8Array(input);
+    if (u.length !== 32) throw new Error('X25519 u-coordinate 必须是 32 字节');
+    u[31] &= 127;
+    return bytesToBigLE(u) % P;
+  }
+  function cswap(swap, a, b) {
+    return swap ? [b, a] : [a, b];
+  }
+
+  function x25519(scalarBytes, uBytes, trace = false) {
+    const kBytes = clampScalarBytes(scalarBytes);
+    const k = bytesToBigLE(kBytes);
+    const x1 = decodeU(uBytes);
+    let x2 = 1n, z2 = 0n, x3 = x1, z3 = 1n, swap = 0;
+    const states = [];
+
+    for (let t = 254; t >= 0; t--) {
+      const kt = Number((k >> BigInt(t)) & 1n);
+      swap ^= kt;
+      [x2, x3] = cswap(swap, x2, x3);
+      [z2, z3] = cswap(swap, z2, z3);
+      swap = kt;
+
+      const A = mod(x2 + z2);
+      const AA = mod(A * A);
+      const B = mod(x2 - z2);
+      const BB = mod(B * B);
+      const E = mod(AA - BB);
+      const C = mod(x3 + z3);
+      const D = mod(x3 - z3);
+      const DA = mod(D * A);
+      const CB = mod(C * B);
+      x3 = mod((DA + CB) * (DA + CB));
+      z3 = mod(x1 * mod((DA - CB) * (DA - CB)));
+      x2 = mod(AA * BB);
+      z2 = mod(E * mod(AA + A24 * E));
+
+      if (trace) states.push({t, kt, x2, z2, x3, z3});
+    }
+    [x2, x3] = cswap(swap, x2, x3);
+    [z2, z3] = cswap(swap, z2, z3);
+    const result = mod(x2 * inv(z2));
+    return { bytes: bigToBytesLE(result, 32), states, scalar: kBytes };
+  }
+  function baseUBytes() { const b = new Uint8Array(32); b[0] = 9; return b; }
+  function random32() { const b = new Uint8Array(32); crypto.getRandomValues(b); return b; }
+  function isAllZero(bytes) { let x = 0; for (const b of bytes) x |= b; return x === 0; }
+  function eqBytes(a,b) { if (a.length !== b.length) return false; let x = 0; for(let i=0;i<a.length;i++) x |= a[i]^b[i]; return x===0; }
+
+  const $ = id => document.getElementById(id);
+  const shortBig = n => { const s = n.toString(16); return s.length > 28 ? s.slice(0,14) + '…' + s.slice(-14) : s; };
+
+  $('clampBtn').addEventListener('click', () => {
+    const raw = random32(); const clamped = clampScalarBytes(raw);
+    $('rawClamp').textContent = bytesToHex(raw);
+    $('doneClamp').textContent = bytesToHex(clamped);
+  });
+
+  let ladder = null, ladderIndex = -1;
+  function renderLadder() {
+    if (!ladder) return;
+    const total = ladder.states.length;
+    if (ladderIndex < 0) {
+      $('bitValue').textContent = '—'; $('bitPos').textContent = '—';
+      ['x2v','z2v','x3v','z3v'].forEach(id => $(id).textContent='—');
+      $('progressBar').style.width = '0%'; $('progressText').textContent = '尚未开始';
+      return;
+    }
+    const s = ladder.states[ladderIndex];
+    $('bitValue').textContent = s.kt; $('bitPos').textContent = s.t;
+    $('x2v').textContent = '0x' + shortBig(s.x2); $('z2v').textContent = '0x' + shortBig(s.z2);
+    $('x3v').textContent = '0x' + shortBig(s.x3); $('z3v').textContent = '0x' + shortBig(s.z3);
+    const pct = ((ladderIndex+1)/total*100).toFixed(1);
+    $('progressBar').style.width = pct + '%'; $('progressText').textContent = `已执行 ${ladderIndex+1} / ${total} 个 bit（${pct}%）`;
+    const tl = $('bitTimeline'); tl.innerHTML='';
+    const start = Math.max(0, ladderIndex-12), end = Math.min(total, ladderIndex+13);
+    for(let i=start;i<end;i++) { const d=document.createElement('div'); d.className='bit'+(i===ladderIndex?' active':''); d.textContent=ladder.states[i].kt; d.title='bit '+ladder.states[i].t; tl.appendChild(d); }
+  }
+  function newLadder() { ladder = x25519(random32(), baseUBytes(), true); ladderIndex=-1; renderLadder(); }
+  $('nextStep').addEventListener('click',()=>{ if(!ladder)newLadder(); ladderIndex=Math.min(ladder.states.length-1, ladderIndex+1); renderLadder(); });
+  $('prevStep').addEventListener('click',()=>{ if(!ladder)return; ladderIndex=Math.max(-1, ladderIndex-1); renderLadder(); });
+  $('resetLadder').addEventListener('click',newLadder);
+  newLadder();
+
+  $('runDemo').addEventListener('click', () => {
+    try {
+      const a = random32(), b = random32();
+      const A = x25519(a, baseUBytes()).bytes;
+      const B = x25519(b, baseUBytes()).bytes;
+      const Sa = x25519(a, B).bytes;
+      const Sb = x25519(b, A).bytes;
+      const same = eqBytes(Sa,Sb), zero = isAllZero(Sa);
+      $('aPriv').textContent=bytesToHex(a); $('bPriv').textContent=bytesToHex(b);
+      $('aPub').textContent=bytesToHex(A); $('bPub').textContent=bytesToHex(B);
+      $('aShared').textContent=bytesToHex(Sa); $('bShared').textContent=bytesToHex(Sb);
+      $('sharedEq').innerHTML = same && !zero ? '<span class="ok">Sₐ = Sᵦ ✓</span>' : '<span class="bad">结果异常 ✗</span>';
+      $('demoStatus').innerHTML = same && !zero ? '<strong class="ok">成功：</strong>双方独立计算出的 32 字节共享秘密完全一致。' : '<strong class="bad">失败：</strong>共享秘密不一致或为全 0。';
+    } catch (e) { $('demoStatus').textContent='错误：'+e.message; }
+  });
+
+  $('testVector').addEventListener('click', () => {
+    const scalar = hexToBytes('a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4');
+    const u = hexToBytes('e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c');
+    const expected = 'c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552';
+    const got = bytesToHex(x25519(scalar,u).bytes);
+    const ok = got === expected;
+    $('demoStatus').innerHTML = `<strong class="${ok?'ok':'bad'}">RFC 7748 测试向量：${ok?'PASS ✓':'FAIL ✗'}</strong><br><span class="mono small">got: ${got}<br>expected: ${expected}</span>`;
+  });
+
+  const SOURCE = `const P = (1n << 255n) - 19n;
+const A24 = 121665n;
+
+function mod(x) { const r = x % P; return r >= 0n ? r : r + P; }
+function powMod(base, exp) {
+  base = mod(base); let out = 1n;
+  while (exp > 0n) {
+    if (exp & 1n) out = mod(out * base);
+    base = mod(base * base);
+    exp >>= 1n;
+  }
+  return out;
+}
+function inv(x) { return powMod(x, P - 2n); }
+
+function bytesToBigLE(bytes) {
+  let n = 0n;
+  for (let i = bytes.length - 1; i >= 0; i--) n = (n << 8n) | BigInt(bytes[i]);
+  return n;
+}
+function bigToBytesLE(n, len = 32) {
+  n = mod(n); const out = new Uint8Array(len);
+  for (let i = 0; i < len; i++) { out[i] = Number(n & 255n); n >>= 8n; }
+  return out;
+}
+function clampScalarBytes(input) {
+  const k = new Uint8Array(input);
+  k[0] &= 248; k[31] &= 127; k[31] |= 64;
+  return k;
+}
+function decodeU(input) {
+  const u = new Uint8Array(input);
+  u[31] &= 127;
+  return bytesToBigLE(u) % P;
+}
+function cswap(swap, a, b) { return swap ? [b,a] : [a,b]; }
+
+function x25519(scalarBytes, uBytes) {
+  const k = bytesToBigLE(clampScalarBytes(scalarBytes));
+  const x1 = decodeU(uBytes);
+  let x2=1n, z2=0n, x3=x1, z3=1n, swap=0;
+
+  for (let t=254; t>=0; t--) {
+    const kt = Number((k >> BigInt(t)) & 1n);
+    swap ^= kt;
+    [x2,x3] = cswap(swap,x2,x3);
+    [z2,z3] = cswap(swap,z2,z3);
+    swap = kt;
+
+    const A=mod(x2+z2), AA=mod(A*A);
+    const B=mod(x2-z2), BB=mod(B*B);
+    const E=mod(AA-BB), C=mod(x3+z3), D=mod(x3-z3);
+    const DA=mod(D*A), CB=mod(C*B);
+    x3=mod((DA+CB)*(DA+CB));
+    z3=mod(x1*mod((DA-CB)*(DA-CB)));
+    x2=mod(AA*BB);
+    z2=mod(E*mod(AA + 121665n*E));
+  }
+
+  [x2,x3] = cswap(swap,x2,x3);
+  [z2,z3] = cswap(swap,z2,z3);
+  return bigToBytesLE(mod(x2 * inv(z2)), 32);
+}`;
+  $('codeDump').textContent = SOURCE;
+})();
+</script>
+</body>
+</html>
